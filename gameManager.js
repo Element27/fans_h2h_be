@@ -10,7 +10,7 @@ class GameManager {
   async createMatch(player1, player2) {
     const matchId = uuidv4();
 
-    // Fetch questions from DB, fallback to built-in set if unavailable
+    // Fetch questions from DB by club, fallback to built-in set if unavailable
     const DEFAULT_QUESTIONS = [
       { id: 'q1', question: 'Which club has more UCL titles?', options: ['FC Barcelona', 'Real Madrid', 'AC Milan', 'Bayern Munich'], correct_index: 1 },
       { id: 'q2', question: 'Which league is Arsenal in?', options: ['La Liga', 'Bundesliga', 'Premier League', 'Serie A'], correct_index: 2 },
@@ -21,22 +21,53 @@ class GameManager {
       { id: 'q7', question: 'Which club is from Amsterdam?', options: ['Ajax', 'PSV', 'Feyenoord', 'AZ'], correct_index: 0 },
     ];
 
-    let allQuestions = [];
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('questions')
-        .select('*');
-      if (!error && Array.isArray(data) && data.length > 0) {
-        allQuestions = data;
-      } else {
-        allQuestions = DEFAULT_QUESTIONS;
+    const pick = (arr, k) => arr.sort(() => Math.random() - Math.random()).slice(0, k)
+
+    async function fetchClubQuestions(clubId, n) {
+      if (!clubId) return []
+      try {
+        const { data, error } = await supabaseAdmin
+          .from('question_clubs')
+          .select('questions:question_id(*)')
+          .eq('club_id', clubId)
+        if (error || !Array.isArray(data)) return []
+        const list = data.map(r => r.questions).filter(Boolean)
+        return pick(list, n)
+      } catch {
+        return []
       }
-    } catch (e) {
-      allQuestions = DEFAULT_QUESTIONS;
+    }
+
+    let qa = await fetchClubQuestions(player1.user.club_id, 5)
+    let qb = await fetchClubQuestions(player2.user.club_id, 5)
+
+    let merged = [...qa, ...qb]
+    if (merged.length < 10) {
+      try {
+        const { data } = await supabaseAdmin.from('questions').select('*')
+        const exclude = new Set(merged.map(q => q.id))
+        const extras = (data || [])
+          .filter(q => !exclude.has(q.id))
+          .sort(() => Math.random() - Math.random())
+          .slice(0, 10 - merged.length)
+        merged = [...merged, ...extras]
+      } catch {
+        merged = [...merged, ...pick(DEFAULT_QUESTIONS, 10 - merged.length)]
+      }
+    }
+
+    // Dedup and shuffle
+    const seen = new Set()
+    const allQuestions = []
+    for (const q of merged) {
+      if (q && !seen.has(q.id)) {
+        seen.add(q.id)
+        allQuestions.push(q)
+      }
     }
 
     // Shuffle and pick 5
-    const questions = allQuestions.sort(() => 0.5 - Math.random()).slice(0, 5);
+    const questions = allQuestions.sort(() => 0.5 - Math.random()).slice(0, 10);
 
     const matchState = {
       id: matchId,
