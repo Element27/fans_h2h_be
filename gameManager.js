@@ -66,7 +66,7 @@ class GameManager {
       }
     }
 
-    // Shuffle and pick 5
+    // Shuffle and pick 10
     const questions = allQuestions.sort(() => 0.5 - Math.random()).slice(0, 10);
 
     const matchState = {
@@ -199,17 +199,24 @@ class GameManager {
     if (p1Score > p2Score) winnerId = p1.user.id;
     else if (p2Score > p1Score) winnerId = p2.user.id;
 
-    // Save to DB
-    const { error } = await supabaseAdmin.from('matches').insert({
-      player1_id: p1.user.id,
-      player2_id: p2.user.id,
-      questions: match.questions,
-      p1_score: p1Score,
-      p2_score: p2Score,
-      winner_id: winnerId
-    });
+    // Check if either player is a guest
+    const hasGuestPlayer = p1.user.isGuest || p2.user.isGuest;
 
-    if (error) console.error('Error saving match:', error);
+    // Only save to DB if no guest players
+    if (!hasGuestPlayer) {
+      const { error } = await supabaseAdmin.from('matches').insert({
+        player1_id: p1.user.id,
+        player2_id: p2.user.id,
+        questions: match.questions,
+        p1_score: p1Score,
+        p2_score: p2Score,
+        winner_id: winnerId
+      });
+
+      if (error) console.error('Error saving match:', error);
+    } else {
+      console.log('Guest player detected, skipping database save');
+    }
 
     this.io.to(matchId).emit('game_over', {
       scores: match.scores,
